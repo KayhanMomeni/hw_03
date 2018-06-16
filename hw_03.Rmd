@@ -1,0 +1,1152 @@
+---
+title: "Third Week: Exploratory Data Analysis"
+subtitle: "LaLiga Analysis"
+author: "Kayhan Momeni"
+date: "4 Esfand 96"
+output:
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+---
+
+<div align="center">
+<img  src="images/laliga-lo.jpg"  align = 'center'>
+</div>
+
+<h1 dir="RTL"> 
+تمرین سری سوم: از لالیگا تا لیگ برتر
+</h1>
+
+> <p dir="RTL"> 
+با استفاده از داده های لیگ دسته اول اسپانیا به سوالات زیر پاسخ دهید.
+از هر دو ابزار
+ggplot2
+و
+highcharter
+برای  تصویرسازی استفاده نمایید.
+</p>
+
+***
+
+<h4 dir="RTL">
+۱. تعداد قهرمانی های تیم ها در تاریخ لالیگا  را استخراج کرده و نمودار ستونی آنها را رسم کنید.
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+<p dir="RTL">
+ابتدا پکیج های مورد نیاز را صدا زده و داده های خود را لود می کنیم:
+</p>
+
+```{r, eval=FALSE}
+library(dplyr)
+library(engsoccerdata)
+library(highcharter)
+laliga = spain[which(spain$round=="league" & spain$tier==1),]
+```
+```{r include=FALSE, cache=FALSE}
+library(dplyr)
+library(engsoccerdata)
+library(highcharter)
+laliga = spain[which(spain$round=="league" & spain$tier==1),]
+```
+
+<p dir="RTL">
+سپس برای هر فصل، جدول فصل را تشکیل می دهیم. رنکینگ هر تیم به این صورت است که ابتدا امتیاز آن محاسبه می شود اگر امتیازشان برابر بود، تفاضل گلشان در بازی رودررو معیار رده بندی قرار میگیرد و اگر تفاضل گل در بازی رودررو هم برابر بود، تفاضل گلشان در کل فصل محاسبه می شود:
+</p>
+
+```{r, warning=FALSE}
+rbind(
+  laliga %>%
+    select(Season, Team=home, opp=visitor, GF=hgoal, GA=vgoal),
+  laliga %>%
+    select(Season, Team=visitor, opp=home, GF=vgoal, GA=hgoal)
+) %>% mutate (GD=GF-GA) -> pl
+
+pl %>%
+  group_by(Season, Team) %>%
+  summarise(Pld= n(), W = sum(GD>0), D=sum(GD==0),L=sum(GD<0),
+            GF=sum(GF), GA=sum(GA), GD=sum(GD)) %>%
+  mutate(Pts = 3*W + D) %>%
+  arrange(-Season, -Pts, -GD) -> leagueTables
+
+for (n in 1:20)
+{
+  s=TRUE
+  for (i in 1:(dim(leagueTables)[1]-1))
+  {
+    if ((leagueTables$Season[i]==leagueTables$Season[i+1]) &
+        (leagueTables$Pts[i]==leagueTables$Pts[i+1]))
+    {
+      pl%>%
+        filter(Season==leagueTables$Season[i] & 
+                 Team==leagueTables$Team[i] &
+                 opp==leagueTables$Team[i+1]) -> data
+      GD = sum(data$GD)
+      if (GD < 0)
+      {
+        s=FALSE
+        tmp = leagueTables[i,]
+        leagueTables[i,]=leagueTables[i+1,]
+        leagueTables [i+1,]=tmp
+      }
+    }
+  }
+  if (s)
+    break
+}
+leagueTables %>%
+  mutate(tmp= 1) -> leagueTables
+
+leagueTables %>%
+  group_by(Season) %>%
+  mutate(Pos= cumsum(tmp)) -> leagueTables
+
+leagueTables$tmp=NULL
+
+rm (data, tmp, GD, i, n)
+```
+
+<p dir="RTL">
+سپس باید برای هر فصل، قهرمانش را حساب کنیم:
+</p>
+
+```{r, warning=FALSE}
+leagueTables %>%
+  group_by(Season) %>%
+  slice(1) -> Champions
+```
+
+<p dir="RTL">
+در نهایت می توانیم تعداد قهرمانی های هر تیم را شمرده و در نمودار ستونی رسم کنیم:
+</p>
+
+```{r, warning=FALSE}
+Champions %>%
+  group_by(Team) %>%
+  summarise(Count=n()) %>%
+  arrange(-Count) %>%
+  hchart(type="column", hcaes(x=Team, y=Count), name="Number of Winning Seasons") %>%
+  hc_add_theme(hc_theme_elementary() ) 
+```
+
+<p dir="RTL">
+برای رسم همین نمودار با پکیج 
+ggplot 
+خواهیم داشت:
+</p>
+
+```{r, warning=FALSE}
+library(ggplot2)
+Champions %>%
+  group_by(Team) %>%
+  summarise(Count=n()) %>%
+  arrange(-Count) -> tmp
+tmp$Team <- factor(tmp$Team, levels=tmp$Team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=Team, y=Count))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+***
+
+<h4 dir="RTL">
+۲. کسل کننده ترین لیگ و تیم را بیابید.
+نمودار ده تیم و ده فصل کسل کننده را رسم کنید.
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+<p dir="RTL">
+اختتلاف زیاد بین امتیاز تیم ها، معیاری برای کسل کننده بودن لیگ است. همچنین اگر این اختلاف زیاد، در رتبه های بالاتر جدول رخ دهد، میزان کسالت آوری آن بیشتر است. بنابر این حواس خود را به ۴ تیم اول جدول معطوف می کنیم. اگر اختلاف امتیاز تیم اول و دوم را با 
+dif1 
+و اختلاف امتیاز بین تیم دوم و سوم را با 
+dif2 
+و اختلاف امتیاز بین تیم سوم و چهارم را با 
+dif3 
+نشان دهیم، میزان کسالت آوری هذ فصل را به این صورت تعریف می کنیم:
+</p>
+$Boringness=(3*dif1) + (2*dif2) + (1*dif3)$
+
+<p dir="RTL">
+حالا می توانیم برای هر فصل میزان کسالت آوری آن را حساب کنیم:
+</p>
+
+```{r, warning=FALSE}
+Champions %>%
+  mutate(diffOf1and2=Pos, diffOf2and3=Pos, diffOf3and4=Pos, Boringness=Pos) -> Champions
+
+for (i in 1:dim(Champions)[1])
+{
+  season = Champions$Season[i]
+  diff1 = leagueTables[which(leagueTables$Season==season & leagueTables$Pos==1),"Pts"] -
+          leagueTables[which(leagueTables$Season==season & leagueTables$Pos==2),"Pts"]
+  Champions$diffOf1and2[i] = diff1
+  diff2 = leagueTables[which(leagueTables$Season==season & leagueTables$Pos==2),"Pts"] -
+          leagueTables[which(leagueTables$Season==season & leagueTables$Pos==3),"Pts"]
+  Champions$diffOf2and3[i] = diff2
+  diff3 = leagueTables[which(leagueTables$Season==season & leagueTables$Pos==3),"Pts"] -
+          leagueTables[which(leagueTables$Season==season & leagueTables$Pos==4),"Pts"]
+  Champions$diffOf3and4[i] = diff3
+  Champions$Boringness[i]  = (3*diff1) + (2*diff2) + (diff3)
+}
+rm(diff1, diff2, diff3, i, season)
+
+Champions %>%
+  arrange(-as.integer(Boringness)) %>%
+  select(Season, Champion=Team) %>%
+  head(1)
+```
+
+<p dir="RTL">
+همانطور که مشخص است، کسل کننده ترین فصل در لالیگا، فصل ۲۰۱۱ بوده است که رئال مادرید با اختلاف ۹ امتیاز از بارسلونا اول شد و بارسلونا با اختلاف ۳۰ امتیاز از والنسیا دوم شد و والنسیا هم در رده ی سوم ایستاد. نمودار ده تا از کسل کننده ترین فصل های لالیگا هم به این صورت است:
+</p>
+
+```{r, warning=FALSE}
+Champions %>%
+  arrange(-as.integer(Boringness)) %>%
+  .[1:10,] %>%
+  hchart(type="column", hcaes(x=Season, y=Boringness), name="Boringness") %>%
+  hc_add_theme(hc_theme_elementary())
+```
+<p dir="RTL">
+برای رسم همین نمودار با پکیج 
+ggplot 
+خواهیم داشت:
+</p>
+
+```{r, warning=FALSE}
+Champions %>%
+  arrange(-as.integer(Boringness)) -> Champions
+tmp = Champions[1:10,]
+tmp$Boringness=as.numeric(tmp$Boringness)
+plot=ggplot(data=tmp, aes(x=Season, y=Boringness))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+<p dir="RTL">
+برای پیدا کردن کسل کننده ترین تیم هم می توان متوسط تعداد گل های زده ی هر تیم را در هر بازی حساب کرد. هرچه این عدد کمتر باشد، کسالت آوری آن تیم بیشتر است. بنابراین معکوس این کمیت را به عنوان معیار کسالت آوری هر تیم در نظر می گیریم:
+</p>
+
+```{r, warning=FALSE}
+pl %>%
+  group_by(Team) %>%
+  summarise(Pld= n(), GF=sum(GF), GA=sum(GA)) %>%
+  mutate(GFperMatch = GF/Pld, Boringness = 1/GFperMatch) %>%
+  arrange(-Boringness) -> Teams
+
+Teams %>%
+  select(Team, GFperMatch) %>%
+  head(1)
+```
+<p dir="RTL">
+همانطور که مشخص است، تیم 
+CF Extremadura 
+که به طور متوسط ۰.۷۷۵ گل در هر بازی زده است، کسالت آور ترین تیم لیگ اسپانیا است. نمودار ده تیم کسالت آور برتر به این صورت است:
+</p>
+
+```{r, warning=FALSE}
+Teams %>%
+  arrange(-as.integer(Boringness)) %>%
+  .[1:10,] %>%
+  hchart(type="column", hcaes(x=Team, y=Boringness), name="Boringness") %>%
+  hc_add_theme(hc_theme_elementary())
+```
+
+<p dir="RTL">
+برای رسم همین نمودار با پکیج 
+ggplot 
+خواهیم داشت:
+</p>
+
+```{r, warning=FALSE}
+Teams %>%
+  arrange(-as.integer(Boringness)) %>%
+  .[1:10,] -> tmp
+tmp$Team <- factor(tmp$Team, levels=tmp$Team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=Team, y=Boringness))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+***
+
+<h4 dir="RTL">
+۳. در چند درصد موارد قهرمان نیم فصل در پایان فصل قهرمان شده است؟
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+<p dir="RTL">
+قهرمانان هر فصل را حساب کرده ایم. حالا باید قهرمانان هر نیم فصل را هم حساب کنیم. برای حساب کردن جدول نیم فصل، باید اولین بازی از دیدار دوگانه هر دو تیم را در نظر بگیریم و بازی دوم هر دو تیم را حذف کنیم:
+</p>
+
+```{r, warning=FALSE}
+laliga %>%
+  group_by(Season) %>%
+  mutate(year = substr(Date,1,4), month = substr(Date,6,7), day = substr(Date,9,10)) %>%
+  select(Season, year, month, day, 3:10) %>%
+  arrange(year, month, day) -> laligaHalf
+
+rbind(
+  laligaHalf %>%
+    select(Season, year, month, day, Team=home, opp=visitor, GF=hgoal, GA=vgoal),
+  laligaHalf %>%
+    select(Season, year, month, day, Team=visitor, opp=home, GF=vgoal, GA=hgoal)
+) %>% mutate (GD=GF-GA) %>%
+  arrange(year, month, day)-> plHalf
+
+plHalf %>%
+  mutate(tmp=1) -> plHalf
+
+plHalf %>%
+  group_by(Season, Team) %>%
+  mutate(CumMatch = cumsum(tmp)) -> plHalf
+
+plHalf$tmp=NULL
+
+plHalf %>%
+  group_by(Season, Team) %>%
+  mutate(numberOfTeams=(n()/2)+1)->plHalf
+
+plHalf %>%
+  filter(CumMatch<numberOfTeams) -> plHalf
+
+
+plHalf %>%
+  group_by(Season, Team) %>%
+  summarise(Pld= n(), W = sum(GD>0), D=sum(GD==0), L=sum(GD<0), GF=sum(GF), GA=sum(GA), GD=sum(GD)) %>%
+  mutate(Pts = 3*W + D) %>%
+  arrange(-Season, -Pts, -GD) -> HalfleagueTables
+
+for (n in 1:20)
+{
+  s=TRUE
+  for (i in 1:(dim(HalfleagueTables)[1]-1))
+  {
+    if ((HalfleagueTables$Season[i]==HalfleagueTables$Season[i+1]) &
+        (HalfleagueTables$Pts[i]==HalfleagueTables$Pts[i+1]))
+    {
+      plHalf%>%
+        filter(Season==HalfleagueTables$Season[i] & 
+                 Team==HalfleagueTables$Team[i] &
+                 opp==HalfleagueTables$Team[i+1]) -> data
+      GD = sum(data$GD)
+      if (GD < 0)
+      {
+        s=FALSE
+        tmp = HalfleagueTables[i,]
+        HalfleagueTables[i,]=HalfleagueTables[i+1,]
+        HalfleagueTables [i+1,]=tmp
+      }
+    }
+  }
+  if (s)
+    break
+}
+HalfleagueTables %>%
+  mutate(tmp= 1) -> HalfleagueTables
+
+HalfleagueTables %>%
+  group_by(Season) %>%
+  mutate(Pos= cumsum(tmp)) -> HalfleagueTables
+
+HalfleagueTables$tmp=NULL
+
+rm (data, tmp, GD, i, n, s)
+
+HalfleagueTables %>%
+  group_by(Season) %>%
+  slice(1) %>%
+  arrange(-Season) -> ChampionsHalf
+
+Champions %>%
+  arrange(-Season) -> Champions
+
+for (i in 1:dim(Champions)[1])
+  Champions$halfTeam[i] = ChampionsHalf$Team[i]
+
+Champions %>%
+  group_by(Pos) %>%
+  summarise(n=n(), x=sum(Team==halfTeam)) -> stat
+
+cat((100*stat$x/stat$n),"%")
+```
+<p dir="RTL">
+همانطور که مشخص است، در حدود ۵۳.۴۸ درصد از فصل ها، قهرمان فصل همان قهرمان نیم فصل بوده است.
+</p>
+
+***
+
+<h4 dir="RTL">
+۴. در بین سال های ۲۰۰۱ تا ۲۰۱۰ گربه سیاه تیم های بزرگ چه تیم هایی بوده است؟
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+<p dir="RTL">
+ابتدا داده های بین سال های ۲۰۰۱ تا ۲۰۱۰ را جدا می کنیم. 
+سپس به ازای تیم های بزرگ، تعداد شکست مقابل سایر تیم ها را می شماریم و نمودار آن را رسم میکنیم. می توانیم همه ی این عملیات را در یک تابع به نام 
+BlackCats 
+انجام دهیم و به ازای تیم های بزرگ، این تابع را صدا کنیم:
+</p>
+```{r, warning=FALSE}
+BlackCats = function(str)
+{
+  laliga = spain[which(spain$round=="league" & spain$tier==1 &
+                         spain$Season>=2001 &  spain$Season<=2010),]
+  
+  rbind(
+    laliga %>%
+      select(Season, Team=home, opp=visitor, GF=hgoal, GA=vgoal),
+    laliga %>%
+      select(Season, Team=visitor, opp=home, GF=vgoal, GA=hgoal)
+  ) %>%
+    mutate (GD=GF-GA) %>%
+    filter(Team==str) %>%
+    group_by(opp) %>%
+    summarise(matches=n(), defeats=100*sum(GD<0)/matches) %>%
+    filter(matches>=10) %>%
+    arrange(-defeats) %>%
+    slice(1:10) %>%
+    select(Team=opp,Percentage=defeats) ->tmp
+  return (tmp)
+}
+```
+
+<p dir="RTL">
+نکته ی قابل توجه این است که اگر دو تیم کمتر از ۱۰ بازی با هم داشته باشند، از داده های ما حذف می شوند و در آمار ما تاثیری ندارند.
+</p>
+
+<p dir="RTL">
+حالا تابع 
+BlackCats 
+را برای تیم های بزرگ اجرا می کنیم. مثلا برای رئال مادرید: 
+</p>
+
+```{r, warning=FALSE}
+tmp = BlackCats("Real Madrid")
+tmp %>%
+  hchart(type="column", hcaes(x=Team, y=Percentage), name="Percentage of Win") %>%
+  hc_title(text = "Percentage of Win") %>%
+  hc_add_theme(hc_theme_elementary())
+```
+
+<p dir="RTL">
+برای رسم همین نمودار با پکیج 
+ggplot 
+خواهیم داشت:
+</p>
+
+```{r, warning=FALSE}
+tmp$Team <- factor(tmp$Team, levels=tmp$Team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=Team, y=Percentage))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+<p dir="RTL">
+همانطور که مشخص است، گربه سیاه تیم 
+رئال مادرید، 
+تیم 
+Deportivo La Coruna
+بوده است. برای 
+بارسلونا:
+</p>
+```{r, warning=FALSE}
+tmp = BlackCats("FC Barcelona")
+tmp %>%
+  hchart(type="column", hcaes(x=Team, y=Percentage), name="Percentage of Win") %>%
+  hc_title(text = "Percentage of Win") %>%
+  hc_add_theme(hc_theme_elementary())
+```
+<p dir="RTL">
+برای رسم همین نمودار با پکیج 
+ggplot 
+خواهیم داشت:
+</p>
+
+```{r, warning=FALSE}
+tmp$Team <- factor(tmp$Team, levels=tmp$Team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=Team, y=Percentage))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+<p dir="RTL">
+همانطور که مشخص است، گربه سیاه تیم 
+بارسلونا هم
+تیم 
+Atletico Madrid
+بوده است.
+</p>
+
+
+***
+<h4 dir="RTL">
+۵. در تاریخ لالیگا کدام تیم رکورددار زودترین قهرمانی است؟ همچنین کدام تیم مقتدرانه ترین قهرمانی را داشته است؟
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+<p dir="RTL">
+برای محاسبه ی مقتدرانه ترین قهرمانی، باید اختلاف امتیاز قهرمان با نائب فهرمان را نگاه کنیم. اما مشکل این است که تعداد بازی ها در تاریخ لیگ ثابت نبوده و امتیاز ها یک دست نیست. بنابراین باید امتیاز ها را به نحوی نرمال کنیم. حداکثر امتیازی که یک تیم می تواند در جدول کسب کند، سه برابر تعداد بازی هایش است. بنابراین اگر امتیاز قهرمان را با 
+Pts1 
+و امتیاز نائب قهرمان را با 
+Pts2 
+و تعداد بازی های قهرمان در آن فصل را با 
+n 
+نشان دهیم، اقتدار قهرمان به صورت زیر محاسبه می شود:
+</p>
+$excathedra=\frac{Pts1-Pts2}{3n}$
+
+<p dir="RTL">
+اختلاف امتیاز قهرمان و نائب قهرمان را قبلا در سوال ۲ حساب کرده ایم. حالا کافی است برای هر قهرمان در تاریخ لالیگا، اقتدار قهرمانی اش را حساب کنیم و برای هر تیم هم بالاترین اقتدارش در سابقه ی قهرمانی هایش را حساب کنیم:
+</p>
+```{r, warning=FALSE}
+Champions$diffOf1and2 = as.integer(Champions$diffOf1and2)
+Champions %>%
+  mutate(excathedra=diffOf1and2/(3*Pld)) %>%
+  group_by(Team) %>%
+  summarise(maxExcathedra=max(excathedra, na.rm = TRUE)) %>%
+  arrange(-maxExcathedra) -> tmp
+tmp%>%
+  hchart(type="column", hcaes(x=Team, y=maxExcathedra)) %>%
+  hc_add_theme(hc_theme_elementary())
+```
+
+<p dir="RTL">
+برای رسم همین نمودار با پکیج 
+ggplot 
+خواهیم داشت:
+</p>
+
+```{r, warning=FALSE}
+tmp$Team <- factor(tmp$Team, levels=tmp$Team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=Team, y=maxExcathedra))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+<p dir="RTL">
+همانطور که مشخص است، مقتدرانه ترین قهرمانی در تاریخ لالیگا مربوط به رئال مادرید است.
+</p>
+
+<p dir="RTL">
+حالا می خواهیم زودترین قهرمانی را پیدا کنیم.این بخش کمی دشوارتر است. به همین خاطر مراحل را پله پله توضیح می دهیم. ابتدا مشابه سوال ۳، برای هر تیم، تمام بازی هایش را لیست کرده و بر حسب تاریخ مرتب می کنیم:
+</p>
+
+```{r, warning=FALSE}
+laliga %>%
+  group_by(Season) %>%
+  mutate(year = substr(Date,1,4), month = substr(Date,6,7), day = substr(Date,9,10)) %>%
+  select(Season, year, month, day, 3:10) %>%
+  arrange(year, month, day) -> laligaHalf
+
+rbind(
+  laligaHalf %>%
+    select(Season, year, month, day, Team=home,
+           opp=visitor, GF=hgoal, GA=vgoal),
+  laligaHalf %>%
+    select(Season, year, month, day, Team=visitor,
+           opp=home, GF=vgoal, GA=hgoal)
+) %>% mutate (GD=GF-GA) %>%
+  arrange(year, month, day)-> plHalf
+
+rm(laligaHalf)
+```
+<p dir="RTL">
+تابع 
+score 
+را به صورت زیر می نویسیم. این تابه یک لیست از تفاوت گل ها میگیرد و لیستی معادل امتیازی که تیم از آن تفاوت گل میگیرد را بر میگرداند:
+</p>
+
+```{r, warning=FALSE}
+score = function(GD)
+{
+  result = vector(mode = typeof(GD[1]), length = length(GD))
+  for (i in 1:length(GD))
+  {
+    if (GD[i]>0)
+      result[i]=3
+    else if (GD[i]==0)
+      result[i]=1
+    else
+      result[i]=0
+  }
+  return(result)
+}
+```
+<p dir="RTL">
+حالا با کمک این تابع، امتیازی که هر تیم از هر بازی اش گرفته را هم به جدولمان اضافه میکنیم. همچنین به ازای هر فصل و هر تیم، امتیاز تجمعی که تیم پس از هر بازی اش، تا آن زمان در فصل گرفته است را هم حساب می کنیم. همچنین تعداد بازی های انجام داده و تعداد بازی های باقی مانده را هم برای هر تیم حساب می کنیم:
+</p>
+
+```{r, warning=FALSE}
+plHalf %>%
+  mutate(scr=score(GD)) %>%
+  mutate(tmp=1) %>%
+  group_by(Season, Team) %>%
+  arrange(year,month,day) %>%
+  mutate(CumScore=cumsum(scr), CumMatch = cumsum(tmp)) %>%
+  group_by(Season, Team) %>%
+  mutate(totalMatches=n(), remainingMatches=n()-CumMatch) -> plHalf
+
+plHalf$CumMatch=NULL
+```
+
+<p dir="RTL">
+حالا داده ها را بر اساس فصل و تعداد بازی های باقی مانده گروه بندی می کنیم. تیم ها را بر اساس امتیاز در هر گروه رده بندی می کنیم:
+</p>
+
+```{r, warning=FALSE}
+plHalf %>%
+  group_by(Season, remainingMatches) %>%
+  arrange(-CumScore) %>%
+  mutate(tmp=1, currentRank=cumsum(tmp)) %>%
+  arrange(Season, -remainingMatches, currentRank)->plHalf
+
+plHalf$tmp=NULL
+```
+
+<p dir="RTL">
+تابع 
+diffToNext 
+به گونه ای می نویسیم که امتیاز هر تیم با تیم بعدی اش در جدول را حساب کند:
+</p>
+
+```{r, warning=FALSE}
+diffToNext = function(lst)
+{
+  result = vector(mode = typeof(1L), length = dim(lst)[1])
+  for (i in 1:(dim(lst)[1]-1))
+  {
+    if (lst$remainingMatches[i]==lst$remainingMatches[i+1])
+      result[i]=lst$CumScore[i]-lst$CumScore[i+1]
+    else
+      result[i]=0
+  }
+  result[dim(lst)[1]]=0
+  return(result)
+}
+```
+
+<p dir="RTL">
+حالا با کمک این تابع، اختلاف امتیاز هر تیم در هر مرحله از فصل با تیم بعدش را حساب می کنیم:
+</p>
+
+```{r, warning=FALSE}
+plHalf$diffToNext = diffToNext(plHalf)
+```
+
+<p dir="RTL">
+حالا از بین داده ها، تیم هایی که در رنک اول ایستاده اند و اختلاف امتیازشان با تیم دوم بیشتر از ۳ برابر بازی های باقی مانده است را جدا می کنیم. این ها تیم هایی هستند که قهرمانی سان قطعی شده است. سپس نسبت تعداد بازی های باقی مانده به کل بازی های تیم در فصل را حساب کرده و نامش را 
+earliness 
+می گذاریم. حالا در هر فصل، تیمی که بیشترین 
+earliness 
+دارد را جدا می کنیم. فصل ها را بر حسب 
+earliness 
+تیم قهرمانشان مرتب کرده و ده فصل اول را نمایش می دهیم:
+</p>
+
+```{r, warning=FALSE}
+plHalf$diffToNext = as.integer(plHalf$diffToNext)
+plHalf$currentRank = as.integer(plHalf$currentRank)
+plHalf$remainingMatches = as.integer(plHalf$remainingMatches)
+
+plHalf %>%
+  filter(currentRank==1 & diffToNext>(3*remainingMatches)) %>%
+  mutate(earliness=100*remainingMatches/totalMatches) %>%
+  group_by(Season) %>%
+  arrange(-earliness)%>%
+  slice(1) %>%
+  arrange(-earliness) %>%
+  select(Season, Team, TotalMatches=totalMatches, RemainingMatches=remainingMatches) %>%
+  head(10)
+```
+
+<p dir="RTL">
+همانطور که مشخص است، زودترین قهرمانی مربوط به رئال مادرید در فصل ۱۹۶۰ است. در آن سال هر تیم ۳۰ بازی انجام می داد که رئال مادرید با اختلاف ۵ بازی مانده به انتها، قهرمانی خود را قطعی کرد. این داستان در فصل ۱۹۶۲ هم تکرار شده است.
+</p>
+
+
+***
+
+<h4 dir="RTL">
+۶. طولانی ترین نوار پیروزی مساوی و شکست مال چه تیم هایی است؟
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+
+```{r, warning=FALSE}
+plHalf %>%
+  arrange(Team, year, month, day) -> plHalf
+
+plHalf %>%
+  mutate(cumWins=0, cumDraws=0, cumDefeats=0) -> plHalf
+
+for (i in 1:dim(plHalf)[1])
+{
+  if (i==1)
+  {
+    if (plHalf$scr[i]==0)
+    {
+      plHalf$cumDefeats[i]=1
+      plHalf$cumDraws[i]=0
+      plHalf$cumWins[i]=0
+    }
+    else if (plHalf$scr[i]==1)
+    {
+      plHalf$cumDefeats[i]=0
+      plHalf$cumDraws[i]=1
+      plHalf$cumWins[i]=0
+    }
+    else
+    {
+      plHalf$cumDefeats[i]=0
+      plHalf$cumDraws[i]=0
+      plHalf$cumWins[i]=1
+    }
+  }
+  else
+  {
+    if (plHalf$Team[i-1] != plHalf$Team[i])
+    {
+      if (plHalf$scr[i]==0)
+      {
+        plHalf$cumDefeats[i]=1
+        plHalf$cumDraws[i]=0
+        plHalf$cumWins[i]=0
+      }
+      else if (plHalf$scr[i]==1)
+      {
+        plHalf$cumDefeats[i]=0
+        plHalf$cumDraws[i]=1
+        plHalf$cumWins[i]=0
+      }
+      else
+      {
+        plHalf$cumDefeats[i]=0
+        plHalf$cumDraws[i]=0
+        plHalf$cumWins[i]=1
+      }
+    }
+    else if (plHalf$scr[i-1]!=plHalf$scr[i])
+    {
+      if (plHalf$scr[i]==0)
+      {
+        plHalf$cumDefeats[i]=1
+        plHalf$cumDraws[i]=0
+        plHalf$cumWins[i]=0
+      }
+      else if (plHalf$scr[i]==1)
+      {
+        plHalf$cumDefeats[i]=0
+        plHalf$cumDraws[i]=1
+        plHalf$cumWins[i]=0
+      }
+      else
+      {
+        plHalf$cumDefeats[i]=0
+        plHalf$cumDraws[i]=0
+        plHalf$cumWins[i]=1
+      }
+    }
+    else
+    {
+      if (plHalf$scr[i]==0)
+      {
+        plHalf$cumDefeats[i]=plHalf$cumDefeats[i-1]+1
+        plHalf$cumDraws[i]=0
+        plHalf$cumWins[i]=0
+      }
+      else if (plHalf$scr[i]==1)
+      {
+        plHalf$cumDefeats[i]=0
+        plHalf$cumDraws[i]=plHalf$cumDraws[i-1]+1
+        plHalf$cumWins[i]=0
+      }
+      else
+      {
+        plHalf$cumDefeats[i]=0
+        plHalf$cumDraws[i]=0
+        plHalf$cumWins[i]=plHalf$cumWins[i-1]+1
+      }
+    }
+  }
+}
+
+plHalf %>%
+  group_by(Team) %>%
+  summarise(CumDefeats=max(cumDefeats), 
+            CumDraws=max(cumDraws), 
+            CumWins=max(cumWins)) ->stat
+
+```
+
+
+<p dir="RTL">
+طولانی ترین نوار پیروزی:
+</p>
+
+```{r, warning=FALSE}
+stat %>%
+  arrange(-CumWins) %>%
+  .[1:10,] -> tmp
+tmp%>%
+  hchart(type="column", hcaes(x=Team, y=CumWins)) %>%
+  hc_yAxis(title = list(text = "Maximum Wins In Row")) %>%
+  hc_add_theme(hc_theme_elementary())
+```
+```{r, warning=FALSE}
+tmp$Team <- factor(tmp$Team, levels=tmp$Team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=Team, y=CumWins))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+<p dir="RTL">
+همانطور که مشخص است، طولانی ترین نوار پیروزی، به طور مشترک متعلق به بارسلونا و رئال مادرید است که هر کدام ۱۶ پیروزی پیاپی را تجربه کرده اند. طولانی ترین نوار مساوی: 
+</p>
+
+```{r, warning=FALSE}
+stat %>%
+  arrange(-CumDraws) %>%
+  .[1:10,] -> tmp
+tmp%>%
+  hchart(type="column", hcaes(x=Team, y=CumDraws)) %>%
+  hc_yAxis(title = list(text = "Maximum Draws In Row")) %>%
+  hc_add_theme(hc_theme_elementary())
+```
+```{r, warning=FALSE}
+tmp$Team <- factor(tmp$Team, levels=tmp$Team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=Team, y=CumDraws))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+<p dir="RTL">
+همانطور که مشخص است طولانی ترین نوار مساوی، متعلق به تیم 
+Burgos CF 
+است که 
+۹ 
+بار پیاپی 
+تساوی را تجربه کرده است.
+طولانی ترین نوار باخت:
+</p>
+
+```{r, warning=FALSE}
+stat %>%
+  arrange(-CumDefeats) %>%
+  .[1:10,] -> tmp
+tmp%>%
+  hchart(type="column", hcaes(x=Team, y=CumDefeats)) %>%
+  hc_yAxis(title = list(text = "Maximum Draws In Row")) %>%
+  hc_add_theme(hc_theme_elementary())
+```
+```{r, warning=FALSE}
+tmp$Team <- factor(tmp$Team, levels=tmp$Team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=Team, y=CumDefeats))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=60, hjust=1))
+```
+
+<p dir="RTL">
+همانطور که مشخص است طولانی ترین نوار شکست، مربوط به تیم
+UD Las Palmas 
+است که 
+۱۱ 
+بار پیاپی 
+شکست را تجربه کرده است.
+</p>
+
+***
+
+<h4 dir="RTL">
+۷. زودترین سقوط مال کدام تیم بوده است؟
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+<p dir="RTL">
+ایده ی محاسبه ی زودترین سقوط مانند سوال ۵ و ایده ی محاسبه ی زودترین قهرمانی است. منتها به جای اینکه چک کنیم چه زمانی اختلاف امتیاز تیم اول و دوم از سه برابر بازی های باقی مانده بیشتر می شود، باید چک کنیم که چه زمانی اختلاف امتیاز تیم سوم از آخر و چهارم از آخر، بیشتر از سه برابر بازی های باقی مانده می شود:
+</p>
+
+```{r, warning=FALSE}
+laliga %>%
+  group_by(Season) %>%
+  mutate(year = substr(Date,1,4), month = substr(Date,6,7), day = substr(Date,9,10)) %>%
+  select(Season, year, month, day, 3:10) %>%
+  arrange(year, month, day) -> laligaHalf
+
+rbind(
+  laligaHalf %>%
+    select(Season, year, month, day, Team=home, opp=visitor, GF=hgoal, GA=vgoal),
+  laligaHalf %>%
+    select(Season, year, month, day, Team=visitor, opp=home, GF=vgoal, GA=hgoal)
+) %>% mutate (GD=GF-GA) %>%
+  arrange(year, month, day)-> plHalf
+
+rm(laligaHalf)
+
+score = function(GD)
+{
+  result = vector(mode = typeof(GD[1]), length = length(GD))
+  for (i in 1:length(GD))
+  {
+    if (GD[i]>0)
+      result[i]=3
+    else if (GD[i]==0)
+      result[i]=1
+    else
+      result[i]=0
+  }
+  return(result)
+}
+plHalf %>%
+  mutate(scr=score(GD)) %>%
+  mutate(tmp=1) %>%
+  group_by(Season, Team) %>%
+  arrange(year,month,day) %>%
+  mutate(CumScore=cumsum(scr), CumMatch = cumsum(tmp)) %>%
+  group_by(Season, Team) %>%
+  mutate(totalMatches=n(), remainingMatches=n()-CumMatch) -> plHalf
+
+plHalf$CumMatch=NULL
+
+plHalf %>%
+  group_by(Season, remainingMatches) %>%
+  arrange(CumScore) %>%
+  mutate(tmp=1, currentRank=cumsum(tmp)) %>%
+  arrange(Season, -remainingMatches, currentRank)->plHalf
+
+plHalf$tmp=NULL
+
+diffToNext = function(lst)
+{
+  result = vector(mode = typeof(1L), length = dim(lst)[1])
+  for (i in 1:(dim(lst)[1]-1))
+  {
+    if (lst$remainingMatches[i]==lst$remainingMatches[i+1])
+      result[i]=lst$CumScore[i+1]-lst$CumScore[i]
+    else
+      result[i]=0
+  }
+  result[dim(lst)[1]]=0
+  return(result)
+}
+
+plHalf$diffToNext = diffToNext(plHalf)
+
+plHalf$diffToNext = as.integer(plHalf$diffToNext)
+plHalf$currentRank = as.integer(plHalf$currentRank)
+plHalf$remainingMatches = as.integer(plHalf$remainingMatches)
+
+plHalf %>%
+  filter(currentRank==3 & diffToNext>(3*remainingMatches)) %>%
+  mutate(earliness=100*remainingMatches/totalMatches) %>%
+  group_by(Season) %>%
+  arrange(-earliness)%>%
+  slice(1) %>%
+  arrange(-earliness) %>%
+  select(Season, Team, TotalMatches=totalMatches, RemainingMatches=remainingMatches) %>%
+  head(10)
+```
+
+<p dir="RTL">
+همانطور که مشخص است، تیم 
+Real Murcia 
+در فصل ۱۹۵۰ وقتی که ۴ بازی به انتهای فصل مانده بود، سقوط خود را قطعی کرد و در این زمینه رکورددار محسوب می شود.
+</p>
+
+***
+
+<div align="center">
+<img  src="images/standings.png"  align = 'center'>
+</div>
+
+<h4 dir="RTL">
+مانند شکل بالا تصویری از روند تغییر رتبه تیم ها در طول فصل ۱۹۹۸ رسم نمایید.
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+<p dir="RTL">
+برای این کار، قبلا در سوال ۵ دینامیک جدول را حساب کرده بودیم. بنابر این از هما کد استفاده می کنیم. در نهایت با 
+ggplot 
+نمودار خواسته شده را تولید می کنیم:
+</p>
+
+```{r, warning=FALSE, fig.width=10}
+laliga = spain[which(spain$round=="league" & spain$tier==1),]
+
+laliga %>%
+  group_by(Season) %>%
+  mutate(year = substr(Date,1,4), month = substr(Date,6,7), day = substr(Date,9,10)) %>%
+  select(Season, year, month, day, 3:10) %>%
+  arrange(year, month, day) -> laligaHalf
+
+rbind(
+  laligaHalf %>%
+    select(Season, year, month, day, Team=home, opp=visitor, GF=hgoal, GA=vgoal),
+  laligaHalf %>%
+    select(Season, year, month, day, Team=visitor, opp=home, GF=vgoal, GA=hgoal)
+) %>% mutate (GD=GF-GA) %>%
+  arrange(year, month, day)-> plHalf
+
+rm(laligaHalf)
+
+score = function(GD)
+{
+  result = vector(mode = typeof(GD[1]), length = length(GD))
+  for (i in 1:length(GD))
+  {
+    if (GD[i]>0)
+      result[i]=3
+    else if (GD[i]==0)
+      result[i]=1
+    else
+      result[i]=0
+  }
+  return(result)
+}
+plHalf %>%
+  mutate(scr=score(GD)) %>%
+  mutate(tmp=1) %>%
+  group_by(Season, Team) %>%
+  arrange(year,month,day) %>%
+  mutate(CumGD=cumsum(GD), CumScore=cumsum(scr), CumMatch = cumsum(tmp)) %>%
+  group_by(Season, Team) %>%
+  mutate(totalMatches=n(), remainingMatches=n()-CumMatch) -> plHalf
+
+plHalf$CumMatch=NULL
+
+plHalf %>%
+  group_by(Season, remainingMatches) %>%
+  arrange(-CumScore, -CumGD) %>%
+  mutate(tmp=1, currentRank=cumsum(tmp)) %>%
+  arrange(Season, -remainingMatches, currentRank)->plHalf
+
+plHalf$tmp=NULL
+
+plHalf %>%
+  filter(Season==1998) %>%
+  arrange(-remainingMatches, currentRank) %>%
+  mutate(date2 = as.Date(paste(day,month,year, sep = "/"), format='%d/%m/%Y')) -> plHalf
+
+hchart(plHalf, "spline", hcaes(x=38-remainingMatches, y=currentRank, group = Team)) %>%
+  hc_yAxis(reversed=TRUE, title = list(text = "Ranking")) %>%
+  hc_xAxis(title = list(text = "Week"))
+
+library(ggplot2)
+plot=ggplot(plHalf, aes(x=date2, y=currentRank))
+plot + geom_line(aes(group=Team, color=Team), size=1) + scale_y_reverse()+
+       scale_x_date(date_breaks = "1 month", date_labels =  "%b %Y")+
+       theme(axis.text.x=element_text(angle=60, hjust=1), legend.position="top") +
+       scale_size_continuous(guide=FALSE)+
+       xlab("Date") + ylab("Position")
+```
+
+
+***
+
+<div align="center">
+<img  src="images/bd_10.gif"  align = 'center'>
+</div>
+
+<h4 dir="RTL">
+۹. جدولی مشابه بالا برای فصل ۲۰۱۲ از  کل نتایج طراحی کنید.
+</h4>
+
+<h5 dir="RTL">
+پاسخ:
+</h5>
+```{r, warning=FALSE}
+games = spain[which(spain$Season==2012),]
+ggplot(games, aes(home, visitor)) + 
+  geom_tile(colour="gray", size=1, stat="identity") + 
+  geom_text(data=games, aes(home, visitor, label = FT), color="grey", size=rel(2))+
+  theme(axis.text.x  = element_text(angle=90))+
+  scale_y_discrete(position = "top")+
+  coord_flip() + xlab("Home") + ylab("Away")
+```
+
+
+***
+
+<h4 dir="RTL">
+۱۰. سه آماره به همراه نمودار فردوسی پسند استخراج کنید.
+</h4>
+<h5 dir="RTL">
+پاسخ:
+</h5>
+
+<p dir="RTL">
+آماره ی اول، رتبه بندی بر اساس امتیاز تیم ها، در کل تاریخ لالیگا بدون محدود بودن به یک فصل خاص است:
+</p>
+```{r, warning=FALSE}
+tmp = maketable_all(spain)
+tmp %>%
+  hchart(type="column", hcaes(x=team, y=Pts)) %>%
+  hc_yAxis(title = list(text = "Points")) %>%
+  hc_add_theme(hc_theme_elementary()) 
+```
+```{r, warning=FALSE}
+tmp$team <- factor(tmp$team, levels=tmp$team[1:dim(tmp)[1]])
+plot=ggplot(data=tmp, aes(x=team, y=Pts))
+plot + geom_bar(stat = "identity", fill="blue", color="black")+
+  theme(axis.text.x=element_text(angle=90, hjust=1))
+```
+
+<p dir="RTL">
+آماره ی دوم، تحول اقتدار دو تیم برتر لالیگا، در طی زمان است. اگر میانگین تفاضل گل در هر سال را اقتدار تیم در آن سال در نظر بگیریم، تحول اقتدار رئال و بارسا در طی زمان به این صورت است:
+</p>
+
+```{r, warning=FALSE}
+pl%>%
+  group_by(Team, Season) %>%
+  filter(Team=="FC Barcelona" || Team=="Real Madrid") %>%
+  summarise(GD = mean(GD)) -> data
+
+  hchart(data, type="line", hcaes(x=Season, y=GD, group=Team)) %>%
+  hc_add_theme(hc_theme_elementary())
+```
+```{r, warning=FALSE}
+  ggplot(data, aes(x=Season, y=GD, group=Team, color=Team)) + 
+    geom_point()+
+    geom_line()+
+    geom_smooth(method = "lm")
+```
+<p dir="RTL">
+و در نهایت، آماره ی سوم میانگین تعداد گل در بازی ها در طی زمان است:
+</p>
+```{r, warning=FALSE}
+  laliga %>%
+    mutate(goals = hgoal+vgoal) %>%
+    group_by(Season) %>%
+    summarise(goals=mean(goals)) -> tmp
+  hchart(tmp, type = "spline", hcaes(x=Season, y=goals))
+```
+```{r, warning=FALSE}
+  ggplot(tmp, aes(x=Season, y=goals)) +
+  geom_point(color="blue") +
+  geom_line(color="blue", linetype="dashed", alpha=0.3)
+```
+<p dir="RTL">
+همانطور که از نمودار مشخص است، به طور میانگین بازی ها در طی زمان کم گل تر شده است
+</p>
